@@ -1,0 +1,287 @@
+---
+title: "STAT 5014: Homework Three"
+subtitle: "Bobby Soule"
+date: "9/18/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(data.table)
+library(ggplot2)
+library(gridExtra)
+setwd("/Users/bobbysoule/Documents/College/Graduate/STAT_5014/STAT_5014_homework/03_good_programming_R_functions")
+```
+  
+## Problem 4
+
+**In the lecture, there were two links to programming style guides.  What is your takeaway from this and what specifically are _you_ going to do to improve your coding style?**
+
+I already knew many of these guidelines from previous experience.  The one rule I have never followed, however, is the 80 character line limit.  I tend to not bother messsing with line length unless I have lines that go beyond the edge of my screen, but this is something I should work on in the future.  
+
+Another thing I need to work on is having concise, descriptive object names.  I tend to just create names as I write my code and I usually end up with a whole mess of object names when I am finished.  To help with this, it will be beneficial for me to think about what objects I will need and what they should be named before I start to writing code.  
+
+I found it interesting that one of the style guides advocated for the use of dots in variable names while the other suggested underscores.  I tend to use underscores since that is the convention in other languages (ie. Python).  
+
+## Problem 5
+
+**Good programming practices start with this homework.  In the last homework, you imported, munged, cleaned and summarized datasets from Wu and Hamada's _Experiments: Planning, Design and Analysis_.  In this problem, please using _lintr_ to lint your last homework. From the messages, what are some things you need to change in your code?**
+
+```{r eval=F, echo=F}
+lint(filename = "/Users/bobbysoule/Documents/College/Graduate/STAT_5014/STAT_5014_homework/02_data_munging_summarizing_R_git/HW2_Soule_Bobby.Rmd")
+```
+
+Based off of the comments, the biggest fix I need to make is adding spaces around infix operators and after all commas. The second most common comment was that I had a few lines that were longer than 80 characters. There were also a couple of spots where I used single quotes rather than double quotes.  
+
+## Problem 6
+
+**A situation you may encounter is a data set where you need to create a summary statistic for each observation type.  Sometimes, this type of redundancy is perfect for a function.  Here, we need to create a single function to:**
+
+1. calculate the mean for dev1
+2. calculate the mean for dev2
+3. calculate the sd for dev1
+4. calculate the sd for dev2
+5. calculate the correlation between dev1 and dev2
+6. return the above as a single data.frame
+
+The function has only one parameter: the dataset.  First, the function stores the unique values of "Observer"" and all values of "dev1" and "dev2".  Next, it creates an empty dataframe that will hold the summary statistics for each observer.  Using a for loop, the function iterates through each observer and calculates the relevant summary statistics.  Before outputing the data, the function uses functions from tidyr to turn the summary dataset into a tidy dataset.  
+
+``` {r, eval=TRUE, echo=TRUE}
+summ_func <- function(data) {
+  observers <- sort(unique(data[, 1]))
+  dev1 <- data[, 2]
+  dev2 <- data[, 3]
+  
+  summ_data <- data.frame(matrix(NA, nrow = length(observers), ncol = 6))
+  colnames(summ_data) <- c("obs", "mean1", "mean2", "sd1", "sd2", "cor")
+  
+  for (observer in observers) {
+    rows <- dev_data$Observer == observer
+    summ_data[observer, 1] <- observer
+    summ_data[observer, 2] <- mean(dev1[rows])
+    summ_data[observer, 3] <- mean(dev2[rows])
+    summ_data[observer, 4] <- sd(dev1[rows])
+    summ_data[observer, 5] <- sd(dev2[rows])
+    summ_data[observer, 6] <- cor(dev1[rows], dev2[rows])
+  }
+  
+  means <- summ_data %>% 
+    select(obs:mean2) %>% 
+    gather(key = device, value = mean, -obs) %>% 
+    mutate(device = gsub("mean", "", device)) %>% 
+    arrange(obs, device) %>% 
+    mutate(obs = as.factor(obs), device = as.factor(device))
+  
+  sds <- summ_data %>%
+    select(obs, sd1, sd2, cor) %>%
+    gather(key = device, value = sd, sd1:sd2) %>%
+    mutate(device = gsub("sd", "", device)) %>%
+    select(obs, device, sd, cor) %>%
+    arrange(obs, device)
+
+  cbind(means, sds[, 3:4])
+}
+
+dev_data <- readRDS("HW3_data.rds")
+dev_summ <- summ_func(dev_data)
+```
+
+**We will use this function to summarize a dataset which has multiple repeated measurements from two devices by thirteen observers. The output of this problem should be:**
+
+a. A single table of the means, sd, and correlation for each of the 13 Observers
+b. A box plot of all the means to compare the spread of means from dev1 to dev2
+c. A violin plot of all the sd to compare the spread of sd from dev1 to dev2
+
+### Part A
+
+The summary dataset was formatted to be "tidy", so it is longer than 13 observations.  Creating a tidy dateset made it much easier to create the necessary graphics using _ggplot2_.  
+
+``` {r, eval=TRUE, echo=TRUE}
+knitr::kable(dev_summ, caption="Summary Statistics for 13 Observers")
+```
+
+### Part B
+
+Since the sample means have such small spread relative to the distance between them, the boxplots appeared as lines when putting them on the same plot.  Instead, each plot was created separately and then the two plots were placed next to each other using _grid.arrange_ from the _gridExtra_ package.  Formatting the graphs this way makes it harder to directly compare the spread of the two samples, but this is the only workaround to the boxplots showing up as lines that I found.  
+
+``` {r, eval=TRUE, echo=TRUE}
+box1 <- ggplot(dev_summ[dev_summ$device==1, ], aes(x=device, y=mean)) +
+        geom_boxplot() +
+        labs(x = "Device 1", y = "Sample Means")
+box2 <- ggplot(dev_summ[dev_summ$device==2, ], aes(x=device, y=mean)) +
+        geom_boxplot() +
+        labs(x = "Device 2", y = "")
+grid.arrange(box1, box2, ncol=2, top = "Boxplots of Sample Means")
+```
+
+### Part C
+
+The same problem from **Part B** was encountered when creating the violin plots of the sample standard deviations, so once again the two violin plots were created on separate plots and then displayed together.  
+
+``` {r, eval=TRUE, echo=TRUE}
+viol1 <- ggplot(dev_summ[dev_summ$device==1, ], aes(x=device, y=sd)) +
+         geom_violin() +
+         labs(x = "Device 1", y = "Sample SDs")
+viol2 <- ggplot(dev_summ[dev_summ$device==2, ], aes(x=device, y=sd)) +
+         geom_violin() +
+         labs(x = "Device 2", y = "")
+grid.arrange(viol1, viol2, ncol=2, top = "Violin Plots of Sample SDs")
+```
+
+## Problem 7 -- redo
+
+**Same as last time, please create and annotate the process to create a tidy dataset from <http://www2.isye.gatech.edu/~jeffwu/wuhamadabook/data/BloodPressure.dat>**
+
+The first thing done to clean this dataset was removing the repeated "day" variable. The next problem was that the dataset has variables as column names.  The categorical "type" variable, which can take on values of "dev" or "doc", and the "reading" variable (1-3) are both being used as column names.  The data were gathered, but then the "type" and "reading" variables were in the same column so they were separated.  Finally, the needed variables were selected and arranged by "day", "reading", and "type".  
+
+``` {r, eval=TRUE, echo=TRUE}
+url <- "http://www2.isye.gatech.edu/~jeffwu/wuhamadabook/data/BloodPressure.dat"
+bp_data <- read.table(url, header=TRUE, skip=1, fill=TRUE, stringsAsFactors=FALSE) %>%
+  tbl_df %>% 
+  select(-Day.1) %>% 
+  gather(key = dev_doc, value = BP, -Day) %>% 
+  mutate(Reading = gsub("Dev|Doc", "", dev_doc)) %>% 
+  mutate(Type = gsub("1|2|3", "", dev_doc)) %>%
+  select(Day, Reading, Type, BP) %>% 
+  arrange(Day, Reading, Type)
+
+knitr::kable(bp_data, caption="Blood Pressure Readings: Doctors vs Devices")
+```
+
+## Problem 8
+
+**Create a function to find solutions to (1) using Newton's method.  The answer should include the solutions with tolerance used to terminate the loop and a plot showing the iterations on the path to the solution.**
+
+\begin{equation}
+f(x) = 3^x - sin(x) + cos(5x)
+\end{equation}
+
+The equation for Newton's Method is as follows:  
+$$x_{n+1} = x_{n} - \frac{f(x_{n})}{f^{'}(x_{n})} $$
+Better approximations are obtained with each successive iteration.  Iterations should be continued until the difference between $x_{n}$ and $x_{n-1}$ is less than a given tolerance, $\epsilon$.  
+
+So, the function must have two parameters: an initial point, $x_{0}$, and a tolerance, $\epsilon$. The function must also assign $f(x)$ and its derivative. Once all setup is complete, the function will carry out the method within a while loop that continues until the difference is less than the tolerance.  At the end of each iteration of the while loop, $x_{n}$ will be stored in a vector so that the path to the solution can be plotted later.  
+
+``` {r, eval=TRUE, echo=TRUE}
+newt_meth <- function(x0, epsilon = 0.01) {
+  xn <- x0
+  continue <- TRUE
+  
+  fx <- function(x) {3^x - sin(x) + cos(5*x)}
+  fx_prime <- function(x) {log(3)*(3^x) - cos(x) - 5*sin(5*x)}
+  
+  while (continue) {
+    curr_x <- xn[length(xn)]
+    xn <- c(xn, curr_x - (fx(curr_x) / fx_prime(curr_x)))
+    if (abs(xn[length(xn)] - xn[length(xn) - 1]) < epsilon) {continue <- FALSE}
+  }
+  list(iterations = xn, tolerance = epsilon)
+}
+```
+
+With initial value $x_{0} = 1$ and tolerance $\epsilon = 0.001$, Newton's Method finds a solution to the equation at $x = -3.5287$.  
+
+``` {r, eval=TRUE, echo=TRUE}
+solution <- newt_meth(x0 = 1, epsilon = 0.001)
+solution
+```
+
+A plot of the method's path to this solution can be seen below.  
+
+``` {r, eval=TRUE, echo=TRUE}
+plot(solution$iterations, type="l",
+     main = "Newton's Method: Path to Solution", ylab = "Xn")
+```
+
+## Problem 9 -- redo, make a good honest and professional attempt
+
+**One common situation data scientists encounter is when data is spread across many data files.  This can be that the data is simply split across data files OR different aspects of the data is in different data files.  Here we will look at the second scenario: different aspects of a dataset are contained in different data files that need to be merged.  In this case, we are going to munge some open data containing car records, reported defects, and defect descriptions.  You should start this problem by looking at the help for variations on SQL like merge functions: merge, join, inner_join, left_join, right_join.  As in the last problem, please create a tidy dataset, summarize and annotate the process, and report the indicated statistics.**  
+
+First, the datasets were loaded into R and then they were filtered so that they only contined rows from 2017.  Using full_join, the gebreken and geconstat dataset were merged by license plate and then the result was merged with the personenauto dataset by defect code.  Since full_join was used the resulting dataset had many NAs, so any row containing missing data was removed.  
+
+```{r, eval=TRUE, echo=TRUE}
+folder_path <- "/Users/bobbysoule/Documents/College/Graduate/STAT_5014/STAT_5014_homework/02_data_munging_summarizing_R_git/"
+
+#defect code, defect comment
+Car_Gebreken <- fread(input = paste(folder_path, "Open_Data_RDW__Gebreken.csv", sep = ""),
+                             header = T, select=c(1,6), showProgress=F) %>% tbl_df
+colnames(Car_Gebreken) <- c("Code", "Comment")
+#license plate, inspection date, defect code
+Car_Geconstat <- fread(input = paste(folder_path, "Open_Data_RDW__Geconstateerde_Gebreken.csv", sep = ""),
+                              header=T, select=c(1,3,5),showProgress=F) %>% tbl_df
+colnames(Car_Geconstat) <- c("Plate", "Inspect_Date", "Code")
+Car_Geconstat <- mutate(Car_Geconstat, Inspect_Date = ymd(Inspect_Date)) %>%
+                 filter(year(Inspect_Date) == 2017)
+#license plate, make, model
+Car_Person <- fread(input = paste(folder_path, "Personenauto_basisdata.csv", sep = ""),
+                           header=T, showProgress = F, select = c(1,3,4)) %>% tbl_df
+colnames(Car_Person) <- c("Plate", "Make", "Model")
+
+Car_Final <- full_join(x = Car_Geconstat, y = Car_Person, by = "Plate") %>%
+             full_join(y = Car_Gebreken, by = "Code")
+Car_Final <- Car_Final[complete.cases(Car_Final),]
+```
+
+Now we are interested in the number of unique makes and models:  
+
+```{r, eval=TRUE, echo=TRUE}
+unique_make <- n_distinct(Car_Final$Make)
+unique_make
+unique_model <- n_distinct(Car_Final$Model)
+unique_model
+```
+
+Next, we would like to create a table of the top five defects and the top makes and models with those defects.  First we must extract the top five defects:  
+
+```{r, eval=TRUE, echo=TRUE}
+Car_byCode <- group_by(Car_Final, Code, Comment)
+Freq_Defects <- summarize(Car_byCode, Count=n()) %>%
+                arrange(desc(Count)) %>%
+                head(5)
+top5_defects <- Freq_Defects$Code
+top5_defects
+```
+
+Now that we have the top five defects, we will group by defect code, make, and model; and we will use _summarize_ to create a table that has the count for each combination of defect, make, and model.  We will filter the table so that it only contains the top five make-model combinations within each of the top five defects.  
+
+```{r, eval=TRUE, echo=TRUE}
+Car_byCodeMakeModel <- group_by(Car_Final, Code, Make, Model)
+Freq_Defects2 <- summarize(Car_byCodeMakeModel, Count=n()) %>%
+                 filter(Code %in% top5_defects) %>%
+                 arrange(desc(Count))
+
+for (code in top5_defects) {
+  assign(code,
+         filter(Freq_Defects2, Code==code) %>%
+         arrange(desc(Count)) %>%
+         head(5) %>% ungroup %>%
+         mutate(Tot_Count = sum(Count))
+         )
+}
+
+Freq_Defects_Final <- get(top5_defects[1])
+for (i in 2:length(top5_defects)) {
+  Freq_Defects_Final <- rbind(Freq_Defects_Final, get(top5_defects[i]))
+}
+
+tot_counts <- Freq_Defects$Count
+names(tot_counts) <- Freq_Defects$Code
+Freq_Defects_Final <- mutate(Freq_Defects_Final, Tot_Count = tot_counts[Code])
+
+knitr::kable(Freq_Defects_Final, caption="Top Five Defects")
+```
+
+The last thing we are interested in is testing for a relationship between the number of defects and the make of the car. Below are the regression coefficients and the ANOVA table.  
+
+```{r, eval=TRUE, echo=TRUE}
+cars_reg <- lm(formula = Count ~ Make, data = Freq_Defects2)
+cars_anova <- anova(cars_reg)
+
+knitr::kable(summary(cars_reg)$coef, caption="Regression Coefficients")
+knitr::kable(cars_anova, caption="ANOVA Table")
+```
+
+Note: I did not test for a relationship between number of defects and model since there are several thousand models in the dataset.
